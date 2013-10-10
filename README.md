@@ -9,7 +9,7 @@ usage
 3.8 patchset:
 
 ```
-git checkout origin/3.8 -b 3.8
+git checkout origin/bb-view -b bb-view
 ./patch.sh
 ```
 
