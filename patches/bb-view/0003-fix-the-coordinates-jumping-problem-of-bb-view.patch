@@ -1,0 +1,64 @@
+From dabc3b0c63acfe73e6191ab6c81564b04fd1c4fd Mon Sep 17 00:00:00 2001
+From: am18x-lib <turmary@126.com>
+Date: Mon, 18 Nov 2013 18:01:30 +0800
+Subject: [PATCH 3/3] fix the coordinates jumping problem of bb-view
+
+---
+ drivers/input/touchscreen/ti_am335x_tsc.c |   21 ++++++++++++++++++---
+ 1 file changed, 18 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/input/touchscreen/ti_am335x_tsc.c b/drivers/input/touchscreen/ti_am335x_tsc.c
+index 0c682c8..fe7f903 100644
+--- a/drivers/input/touchscreen/ti_am335x_tsc.c
++++ b/drivers/input/touchscreen/ti_am335x_tsc.c
+@@ -64,6 +64,19 @@ static unsigned int titsc_readl(struct titsc *ts, unsigned int reg)
+ 	return readl(ts->mfd_tscadc->tscadc_base + reg);
+ }
+ 
++static u32 reg_read(unsigned addr) { return readl((const volatile void*)addr); }
++static int dump_regs(char* name, unsigned addr, int size) {
++	int i;
++	u32 reg;
++
++	for (i = 0; i < size; i += sizeof(int)) {
++		reg = reg_read(addr + i);
++		printk("%s[%.4X] = 0x%.8X\n", name, i, reg);
++	}
++	return 0;
++}
++
++
+ static void titsc_writel(struct titsc *tsc, unsigned int reg,
+ 					unsigned int val)
+ {
+@@ -179,15 +192,15 @@ static void titsc_step_config(struct titsc *ts_dev)
+ 	/* Charge step configuration */
+ 	config = ts_dev->bit_xp | ts_dev->bit_yn |
+ 			STEPCHARGE_RFP_XPUL | STEPCHARGE_RFM_XNUR |
+-			STEPCHARGE_INM_AN1 | STEPCHARGE_INP(ts_dev->inp_yp);
++			STEPCHARGE_INM_AN1 | STEPCHARGE_INP(ts_dev->inp_xn);
+ 
+ 	titsc_writel(ts_dev, REG_CHARGECONFIG, config);
+ 	titsc_writel(ts_dev, REG_CHARGEDELAY, CHARGEDLY_OPENDLY);
+ 
+ 	/* coordinate_readouts * 2 … coordinate_readouts * 2 + 2 is for Z */
+ 	config = STEPCONFIG_MODE_HWSYNC |
+-			STEPCONFIG_AVG_16 | ts_dev->bit_yp |
+-			ts_dev->bit_xn | STEPCONFIG_INM_ADCREFM |
++			STEPCONFIG_AVG_16 | STEPCONFIG_YPN |
++			STEPCONFIG_XNP | STEPCONFIG_INM_ADCREFM |
+ 			STEPCONFIG_INP(ts_dev->inp_xp);
+ 	titsc_writel(ts_dev, REG_STEPCONFIG(end_step), config);
+ 	titsc_writel(ts_dev, REG_STEPDELAY(end_step),
+@@ -472,6 +485,8 @@ static int titsc_probe(struct platform_device *pdev)
+ 		goto err_free_irq;
+ 
+ 	platform_set_drvdata(pdev, ts_dev);
++
++	dump_regs("TSC", (unsigned)ts_dev->mfd_tscadc->tscadc_base, REG_FIFO0);
+ 	return 0;
+ 
+ err_free_irq:
+-- 
+1.7.9.5
+
