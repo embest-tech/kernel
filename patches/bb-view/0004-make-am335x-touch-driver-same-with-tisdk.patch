@@ -1,0 +1,129 @@
+From 771c625fa8e4c01e1506466fb2c3e1ca3d2ccc14 Mon Sep 17 00:00:00 2001
+From: am18x-lib <turmary@126.com>
+Date: Thu, 5 Dec 2013 15:11:09 +0800
+Subject: [PATCH 4/4] make am335x touch driver same with tisdk
+
+---
+ drivers/input/touchscreen/ti_am335x_tsc.c |   39 ++++++++++++++++++++++++-----
+ include/linux/mfd/ti_am335x_tscadc.h      |    2 ++
+ 2 files changed, 35 insertions(+), 6 deletions(-)
+ mode change 100644 => 100755 drivers/input/touchscreen/ti_am335x_tsc.c
+
+diff --git a/drivers/input/touchscreen/ti_am335x_tsc.c b/drivers/input/touchscreen/ti_am335x_tsc.c
+old mode 100644
+new mode 100755
+index fe7f903..6e15cc9
+--- a/drivers/input/touchscreen/ti_am335x_tsc.c
++++ b/drivers/input/touchscreen/ti_am335x_tsc.c
+@@ -57,6 +57,7 @@ struct titsc {
+ #define	TOUCH_TYPE_LCD43	1
+ #define	TOUCH_TYPE_LCD7		2
+ 	int			touch_type;
++	unsigned		bckup_x, bckup_y;
+ };
+ 
+ static unsigned int titsc_readl(struct titsc *ts, unsigned int reg)
+@@ -276,6 +277,7 @@ static irqreturn_t titsc_irq(int irq, void *dev)
+ 	unsigned int x = 0, y = 0;
+ 	unsigned int z1, z2, z;
+ 	unsigned int fsm;
++	unsigned int config;
+ 
+ 	status = titsc_readl(ts_dev, REG_IRQSTATUS);
+ 	/*
+@@ -289,9 +291,31 @@ static irqreturn_t titsc_irq(int irq, void *dev)
+ 			(status & IRQENB_FIFO1OVRRUN) ||
+ 			(status & IRQENB_FIFO1UNDRFLW))
+ 		return IRQ_NONE;
+-	else if (status & IRQENB_FIFO0THRES) {
++	else if ((status & IRQENB_FIFO0OVRRUN) ||
++			(status & IRQENB_FIFO0UNDRFLW)) {
++		config = titsc_readl(ts_dev, REG_CTRL);
++		config &= ~(CNTRLREG_TSCSSENB);
++		titsc_writel(ts_dev, REG_CTRL, config);
++
++		if (status & IRQENB_FIFO0UNDRFLW)
++			titsc_writel(ts_dev, REG_IRQSTATUS,
++			(status | IRQENB_FIFO0UNDRFLW));
++		else
++			titsc_writel(ts_dev, REG_IRQSTATUS,
++				(status | IRQENB_FIFO0OVRRUN));
++
++		titsc_writel(ts_dev, REG_CTRL,
++			(config | CNTRLREG_TSCSSENB));
++		return IRQ_HANDLED;
++	} else if (status & IRQENB_FIFO0THRES) {
++		unsigned int diffx = 0, diffy = 0;
+ 
+ 		titsc_read_coordinates(ts_dev, &x, &y, &z1, &z2);
++		
++		diffx = abs(x - ts_dev->bckup_x);
++		diffy = abs(y - ts_dev->bckup_y);
++		ts_dev->bckup_x = x;
++		ts_dev->bckup_y = y;
+ 
+ 		if (ts_dev->pen_down && z1 != 0 && z2 != 0) {
+ 			/*
+@@ -299,13 +323,13 @@ static irqreturn_t titsc_irq(int irq, void *dev)
+ 			 * Resistance(touch) = x plate resistance *
+ 			 * x postion/4096 * ((z2 / z1) - 1)
+ 			 */
+-			z = z1 - z2;
++			z = z2 - z1;
+ 			z *= x;
+ 			z *= ts_dev->x_plate_resistance;
+-			z /= z2;
++			z /= z1;
+ 			z = (z + 2047) >> 12;
+ 
+-			if (z <= MAX_12BIT) {
++			if (diffx < 30 && diffy < 30 && z <= MAX_12BIT) {
+ 				if (ts_dev->touch_type != TOUCH_TYPE_LCD_NORM) {
+ 					x &= ~0x0007;
+ 					y &= ~0x0007;
+@@ -340,6 +364,8 @@ static irqreturn_t titsc_irq(int irq, void *dev)
+ 		fsm = titsc_readl(ts_dev, REG_ADCFSM);
+ 		if (fsm == ADCFSM_STEPID) {
+ 			ts_dev->pen_down = false;
++			ts_dev->bckup_x = 0;
++			ts_dev->bckup_y = 0;
+ 			input_report_key(input_dev, BTN_TOUCH, 0);
+ 			input_report_abs(input_dev, ABS_PRESSURE, 0);
+ 			input_sync(input_dev);
+@@ -348,9 +374,9 @@ static irqreturn_t titsc_irq(int irq, void *dev)
+ 		}
+ 		irqclr |= IRQENB_PENUP;
+ 	}
++	irqclr |= IRQENB_HW_PEN;
+ 
+ 	if (status & IRQENB_HW_PEN) {
+-
+ 		titsc_writel(ts_dev, REG_IRQWAKEUP, 0x00);
+ 		titsc_writel(ts_dev, REG_IRQCLR, IRQENB_HW_PEN);
+ 	}
+@@ -459,7 +485,8 @@ static int titsc_probe(struct platform_device *pdev)
+ 		goto err_free_mem;
+ 	}
+ 
+-	titsc_writel(ts_dev, REG_IRQENABLE, IRQENB_FIFO0THRES);
++	titsc_writel(ts_dev, REG_IRQENABLE, IRQENB_FIFO0THRES 
++		| IRQENB_FIFO0OVRRUN | IRQENB_FIFO0UNDRFLW);
+ 	err = titsc_config_wires(ts_dev);
+ 	if (err) {
+ 		dev_err(&pdev->dev, "wrong i/p wire configuration\n");
+diff --git a/include/linux/mfd/ti_am335x_tscadc.h b/include/linux/mfd/ti_am335x_tscadc.h
+index 3a9c00f..923bd57 100644
+--- a/include/linux/mfd/ti_am335x_tscadc.h
++++ b/include/linux/mfd/ti_am335x_tscadc.h
+@@ -55,6 +55,8 @@
+ #define IRQENB_FIFO0THRES	BIT(2)
+ #define IRQENB_FIFO1THRES	BIT(5)
+ #define IRQENB_PENUP		BIT(9)
++#define IRQENB_FIFO0OVRRUN	BIT(3)
++#define IRQENB_FIFO0UNDRFLW	BIT(4)
+ #define IRQENB_FIFO1OVRRUN	BIT(6)
+ #define IRQENB_FIFO1UNDRFLW	BIT(7)
+ 
+-- 
+1.7.9.5
+
