@@ -1,0 +1,75 @@
+From ad14505c873a389a67c609614bbc6aa45cf54605 Mon Sep 17 00:00:00 2001
+From: am18x-lib <turmary@126.com>
+Date: Sun, 19 Jan 2014 14:44:01 +0800
+Subject: [PATCH 5/5] fix the problem of touch drift after reboot
+
+---
+ drivers/gpu/drm/tilcdc/tilcdc_crtc.c      |    4 +++-
+ drivers/input/touchscreen/ti_am335x_tsc.c |    6 ++++--
+ firmware/capes/BB-VIEW-LCD7-01-00A0.dts   |    2 +-
+ 3 files changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/gpu/drm/tilcdc/tilcdc_crtc.c b/drivers/gpu/drm/tilcdc/tilcdc_crtc.c
+index 45d51c9..c3cd4d0 100644
+--- a/drivers/gpu/drm/tilcdc/tilcdc_crtc.c
++++ b/drivers/gpu/drm/tilcdc/tilcdc_crtc.c
+@@ -614,7 +614,9 @@ void tilcdc_crtc_update_clk(struct drm_crtc *crtc)
+ 		tilcdc_crtc_dpms(crtc, DRM_MODE_DPMS_OFF);
+ 
+ 	/* in raster mode, minimum divisor is 2: */
+-	ret = clk_set_rate(priv->disp_clk, crtc->mode.clock * 1000 * 2);
++	// tary, 2014-01-15 10:55
++	// ret = clk_set_rate(priv->disp_clk, crtc->mode.clock * 1000 * 2);
++	ret = clk_set_rate(priv->disp_clk, 300000000);
+ 	if (ret) {
+ 		dev_err(dev->dev, "failed to set display clock rate to: %d\n",
+ 				crtc->mode.clock);
+diff --git a/drivers/input/touchscreen/ti_am335x_tsc.c b/drivers/input/touchscreen/ti_am335x_tsc.c
+index 6e15cc9..db50844 100755
+--- a/drivers/input/touchscreen/ti_am335x_tsc.c
++++ b/drivers/input/touchscreen/ti_am335x_tsc.c
+@@ -32,7 +32,7 @@
+ #include <linux/mfd/ti_am335x_tscadc.h>
+ 
+ #define ADCFSM_STEPID		0x10
+-#define SEQ_SETTLE		275
++#define SEQ_SETTLE		315
+ #define MAX_12BIT		((1 << 12) - 1)
+ 
+ static const int config_pins[] = {
+@@ -334,6 +334,7 @@ static irqreturn_t titsc_irq(int irq, void *dev)
+ 					x &= ~0x0007;
+ 					y &= ~0x0007;
+ 				}
++				#if 0
+ 				if (ts_dev->touch_type == TOUCH_TYPE_LCD7) {
+ 					input_report_abs(input_dev, ABS_X, 4096 - y);
+ 					input_report_abs(input_dev, ABS_Y, x - 256);
+@@ -341,9 +342,10 @@ static irqreturn_t titsc_irq(int irq, void *dev)
+ 					input_report_abs(input_dev, ABS_X, 4096 - x);
+ 					input_report_abs(input_dev, ABS_Y, 3840 - y);
+ 				} else {
++				#endif
+ 				input_report_abs(input_dev, ABS_X, x);
+ 				input_report_abs(input_dev, ABS_Y, y);
+-				}
++				//}
+ 				input_report_abs(input_dev, ABS_PRESSURE, z);
+ 				input_report_key(input_dev, BTN_TOUCH, 1);
+ 				input_sync(input_dev);
+diff --git a/firmware/capes/BB-VIEW-LCD7-01-00A0.dts b/firmware/capes/BB-VIEW-LCD7-01-00A0.dts
+index f506a15..8fb89dc 100755
+--- a/firmware/capes/BB-VIEW-LCD7-01-00A0.dts
++++ b/firmware/capes/BB-VIEW-LCD7-01-00A0.dts
+@@ -260,7 +260,7 @@
+ 						vback-porch     = <30>;
+ 						vfront-porch    = <13>;
+ 						vsync-len       = <3>;
+-						clock-frequency = <30000000>;
++						clock-frequency = <27000000>;
+ 						hsync-active    = <0>;
+ 						vsync-active    = <0>;
+ 					};
+-- 
+1.7.9.5
+
